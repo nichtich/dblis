@@ -24,7 +24,13 @@ binmode STDOUT, ':utf8';
 
 my $source = 'http://journal.code4lib.org/issues';
 
+my @bibtexmonth = qw(jan feb mar apr may jun jul aug sep oct nov dec);
+
+# the following variables define a bibliographic record
 my ($key, $issue, $url, $title, @authors, $abstract, $year, $month, $day);
+my $issn = "1940-5758";
+
+my $with_abstracts = 1; # set false for quick generation
 
 use LWP::Simple;
 
@@ -38,43 +44,62 @@ pQuery($html)->find('.issue')->each(sub {
       or warn "Failed to parse issue '$issuetitle'\n";
     ($issue, $year, $month, $day) = ($1,$2,$3,$4);
 
-    $p->find('li')->each(sub {
-        my $li = pQuery($_); 
-        my $a = $li->find('.articletitle a');
-
-        $url = $a->get(0)->getAttribute('href');
-        $url =~ /(\d+)$/; $key = "code4lib$1";
-        $title = $a->text;
-
-        my $author = $li->find('.author')->text;
-
-        # J. Gordon Daines, III => J. Gordon Daines III
-        $author =~ s/, *(I+)/ $1/;
-
-        # split author names
-        @authors = map { s/ *\([^)]*\) *$//; $_ }
-                   map { s/(^\s+|\s+$)//g; $_ }
-                   split /&|,? +and +|,? +with +|,/, $author;
-
-        # .. .we could further get the abstract ...
-
-        bibtex(); # right now we only export BibTeX
-    });
+    if ($with_abstracts) {
+        $html = get ("http://journal.code4lib.org/issues/issue$issue");
+        $p = pQuery($html);
+        $p->find('.article')->each( \&article );
+    } else {
+        $p->find('li')->each( \&article );
+    }
 });
 
+sub article {
+    my $article = pQuery($_);
+    my $a = $article->find('.articletitle a');
 
-# This will fail if anything contains '/' but BibteX is bad anyway
+    $url = $a->get(0)->getAttribute('href');
+    $url =~ /(\d+)$/; $key = "code4lib$1";
+    $title = $a->text;
+
+    my $author = $article->find('.author')->text;
+
+    # J. Gordon Daines, III => J. Gordon Daines III
+    $author =~ s/, *(I+)/ $1/;
+
+    # split author names
+    @authors = map { s/ *\([^)]*\) *$//; $_ }
+                map { s/(^\s+|\s+$)//g; $_ }
+                split /&|,? +and +|,? +with +|,/, $author;
+
+    $abstract = $article->find('.abstract')->text;
+
+    # Right now this only exports BibTeX. Feel free to export the
+    # bibliographic data as something else, unless you modify 
+    # the variables that define the record and thus break bibtex()
+    bibtex(); 
+};
+
+
+# This will fail if anything contains '/', but BibteX is bad anyway
 sub bibtex {
-  print 
-    join(",\n", "\@article{$key",
+  my @fields = (
     " author = {" . join(' and ', @authors) . "}",
     " title = {$title}",
     " journal = {Code4Lib Journal}",
-    " volume = {$issue}",
+    " issue = {$issue}",
     " year = {$year}",
-    " month = {$month}",
+    " month = " . $bibtexmonth[$month-1],
     " day = {$day}",
     " url = {$url}",
-    "}"
-   ) . "\n";
+    " issn = {$issn}"
+  );
+  push @fields, " abstract = {$abstract}" if $abstract;
+  print join(",\n", "\@article{$key", @fields, "}", "");
 }
+
+=head1 LICENSE
+
+This script is part of the dblis repository: http://github.com/nichtich/dblis
+Feel free to fork and add scrapers for other interesting journals.
+
+=cut
